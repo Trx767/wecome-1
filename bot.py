@@ -400,21 +400,42 @@ def handle_update(update):
       def download_and_send_music():
         file_path = f"song_{chat_id}.mp3"
         try:
-          ydl_opts_simple = {
+          # Invidious API ကိုသုံး၍ YouTube Video URL ကို ရှာဖွေမည်
+          encoded_query = urllib.parse.quote(query)
+          api_url = f"https://vid.puffyan.us/api/v1/search?q={encoded_query}"
+          req = urllib.request.Request(
+              api_url, headers={"User-Agent": "Mozilla/5.0"}
+          )
+
+          video_url = None
+          title = query
+          with urllib.request.urlopen(req, timeout=10) as response:
+            results = json.loads(response.read().decode("utf-8"))
+            for item in results:
+              if item.get("type") == "video":
+                video_id = item.get("videoId")
+                video_url = f"https://www.youtube.com/watch?v={video_id}"
+                title = item.get("title", query)
+                break
+
+          if not video_url:
+            send_message(
+                chat_id,
+                "❌ သီချင်းကို ရှာမတွေ့ပါ။ ကျေးဇူးပြု၍ နာမည်အမှန်ဖြင့်"
+                " ထပ်စမ်းပါ။",
+            )
+            return
+
+          # yt-dlp ဖြင့် URL အတိုင်း သီချင်းဆွဲမည်
+          ydl_opts = {
               "format": "bestaudio",
               "outtmpl": file_path,
               "quiet": True,
               "noplaylist": True,
           }
 
-          with yt_dlp.YoutubeDL(ydl_opts_simple) as ydl:
-            # တိကျစေရန် 'audio' စာသားကို တွဲ၍ ရှာဖွေမည်
-            search_query = f"ytsearch1:{query} audio"
-            info = ydl.extract_info(search_query, download=True)
-
-            if "entries" in info:
-              info = info["entries"][0]
-            title = info.get("title", query)
+          with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([video_url])
 
           actual_file = None
           for f in os.listdir("."):
@@ -430,8 +451,7 @@ def handle_update(update):
           else:
             send_message(
                 chat_id,
-                "❌ သီချင်းကို ဒေါင်းလုဒ်လုပ်၍ မရပါ။ ကျေးဇူးပြု၍ တခြားနာမည်"
-                " တစ်ခု ထပ်စမ်းပါ။",
+                "❌ သီချင်းကို ဒေါင်းလုဒ်လုပ်၍ မရပါ။",
             )
         except Exception as e:
           logging.error(f"Music play error: {e}")
@@ -717,7 +737,7 @@ if __name__ == "__main__":
   set_webhook()
   server = http.server.ThreadingHTTPServer(("0.0.0.0", PORT), WebhookHandler)
   logging.info(
-      f"Starting Threading Web Service server on port {PORT} with accurate music"
+      f"Starting Threading Web Service server on port {PORT} with API music"
       " search..."
   )
   server.serve_forever()
