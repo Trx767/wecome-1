@@ -4,6 +4,7 @@ import logging
 import os
 import random
 import re
+import time
 import urllib.parse
 import urllib.request
 
@@ -16,6 +17,13 @@ RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL")
 
 user_warns = {}
 go_enabled = {}
+
+MEMBER_STICKER_ID = (
+    "CAACAgUAAxkBAAESBaZqyogu8kKadNqxN3T1Uv7dcxI2sgACgCEAAtp_KVde-glYrCtWNT0E"
+)
+LEAVE_STICKER_ID = (
+    "CAACAgUAAxkBAAESBclqywzRE3mY_0B0mFsiDzdhVx32fgACYhAAAtltiVaBcjx4byu5lj0E"
+)
 
 INSULT_MESSAGES = [
     "အပေါစားဖာသည်မ နင့်လင်လီး ပြေးမစုပ်ရလို့ ဂါနေတာလား",
@@ -131,6 +139,13 @@ def send_message(chat_id, text, parse_mode="Markdown"):
   )
 
 
+def send_sticker(chat_id, sticker_id):
+  return send_request(
+      "sendSticker",
+      {"chat_id": chat_id, "sticker": sticker_id},
+  )
+
+
 def delete_message(chat_id, message_id):
   return send_request(
       "deleteMessage",
@@ -138,18 +153,25 @@ def delete_message(chat_id, message_id):
   )
 
 
-def ban_chat_member(chat_id, user_id):
+def ban_chat_member(chat_id, user_id, until_date=None):
+  data = {"chat_id": chat_id, "user_id": user_id}
+  if until_date:
+    data["until_date"] = until_date
+  return send_request("banChatMember", data)
+
+
+def unban_chat_member(chat_id, user_id):
   return send_request(
-      "banChatMember",
-      {"chat_id": chat_id, "user_id": user_id},
+      "unbanChatMember",
+      {"chat_id": chat_id, "user_id": user_id, "only_if_banned": True},
   )
 
 
-def restrict_chat_member(chat_id, user_id, permissions):
-  return send_request(
-      "restrictChatMember",
-      {"chat_id": chat_id, "user_id": user_id, "permissions": permissions},
-  )
+def restrict_chat_member(chat_id, user_id, permissions, until_date=None):
+  data = {"chat_id": chat_id, "user_id": user_id, "permissions": permissions}
+  if until_date:
+    data["until_date"] = until_date
+  return send_request("restrictChatMember", data)
 
 
 def get_chat_member(chat_id, user_id):
@@ -167,6 +189,23 @@ def is_admin(chat_id, user_id):
   if member:
     return member.get("status") in ["administrator", "creator"]
   return False
+
+
+def parse_time(time_str: str) -> int | None:
+  match = re.match(r"^(\d+)([mhdw])$", time_str.lower())
+  if not match:
+    return None
+  val, unit = int(match.group(1)), match.group(2)
+  delta = 0
+  if unit == "m":
+    delta = val * 60
+  elif unit == "h":
+    delta = val * 3600
+  elif unit == "d":
+    delta = val * 86400
+  elif unit == "w":
+    delta = val * 604800
+  return int(time.time()) + delta
 
 
 class WebhookHandler(http.server.BaseHTTPRequestHandler):
@@ -200,9 +239,33 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
 
 
 def handle_update(update):
+  # Check chat_member updates (when someone leaves/joins)
+  if "chat_member" in update:
+    cm = update["chat_member"]
+    chat_id = cm["chat"]["id"]
+    old_status = cm["old_chat_member"].get("status")
+    new_status = cm["new_chat_member"].get("status")
+
+    if old_status in ["member", "restricted", "administrator"] and new_status == (
+        "left"
+    ):
+      user_obj = cm["new_chat_member"]["user"]
+      m_id = user_obj["id"]
+      m_name = user_obj.get("first_name", "")
+      mention = f"[{m_name}](tg://user?id={m_id})"
+
+      ban_chat_member(chat_id, m_id)
+      send_message(
+          chat_id,
+          f"{mention}\nထွက်ရင် ban တယ် မအေလိုး ပြန်မလာနဲ့",
+      )
+      send_sticker(chat_id, LEAVE_STICKER_ID)
+    return
+
   if "message" in update:
     msg = update["message"]
     chat_id = msg["chat"]["id"]
+    msg_id = msg["message_id"]
     user = msg.get("from", {})
     user_id = user.get("id")
     full_name = user.get("first_name", "") + (
@@ -211,9 +274,35 @@ def handle_update(update):
     text = msg.get("text", "")
     reply_to = msg.get("reply_to_message")
 
+    # Check left_chat_member in service messages as fallback
+    if "left_chat_member" in msg:
+      member = msg["left_chat_member"]
+      m_id = member["id"]
+      m_name = member.get("first_name", "")
+      mention = f"[{m_name}](tg://user?id={m_id})"
+
+      ban_chat_member(chat_id, m_id)
+      send_message(
+          chat_id,
+          f"{mention}\nထွက်ရင် ban တယ် မအေလိုး ပြန်မလာနဲ့",
+      )
+      send_sticker(chat_id, LEAVE_STICKER_ID)
+      return
+
+    # New members welcome
+    if "new_chat_members" in msg:
+      for member in msg["new_chat_members"]:
+        m_name = member.get("first_name", "")
+        mention = f"[{m_name}](tg://user?id={member['id']})"
+        send_message(
+            chat_id, f"မင်္ဂလာပါ {mention} ရေ 👋\nGroup မှ နွေးထွေးစွာ ကြိုဆိုပါတယ်။"
+        )
+      return
+
+    # Link filter
     link_regex = r"(https?://[^\s]+|t\.me/[^\s]+|telegram\.me/[^\s]+)"
     if text and re.search(link_regex, text, re.IGNORECASE):
-      delete_message(chat_id, msg["message_id"])
+      delete_message(chat_id, msg_id)
       key = (chat_id, user_id)
       current_warns = user_warns.get(key, 0) + 1
       user_warns[key] = current_warns
@@ -235,43 +324,68 @@ def handle_update(update):
         )
       return
 
-    if text.startswith("/go"):
+    parts = text.split()
+    cmd = parts[0].split("@")[0] if parts else ""
+
+    if cmd == "/start":
+      send_message(
+          chat_id,
+          f"မင်္ဂလာပါ {full_name} ရေ 👋\nGroup မှ နွေးထွေးစွာ ကြိုဆိုပါတယ်။",
+      )
+
+    elif cmd == "/go":
       if not is_admin(chat_id, user_id):
         send_message(
             chat_id,
-            "မင်းမာခွင့်ပြုချက်မရှိဘူး ဖာသယ်မသား သုံးချင်ရင် ဖေဖေ ခေါ son",
+            "မင်းမာခွင့်ပြုချက်မရှိဘူး ဖာသယ်မသား\nသုံးချင်ရင်ဖေဖေခေါ son",
         )
+        send_sticker(chat_id, MEMBER_STICKER_ID)
         return
       if chat_id in go_enabled and not go_enabled[chat_id]:
         return
-      send_message(chat_id, "သခင့်အလိုကျဖာသယ်မသားကိုဖင်စတင်လိုးပါတော့မယ်")
-      random_insult = random.choice(INSULT_MESSAGES)
-      mention = f"[{full_name}](tg://user?id={user_id})"
-      send_message(chat_id, f"{mention}\n{random_insult}")
 
-    elif text.startswith("/ungo"):
+      if reply_to and "from" in reply_to:
+        target_user = reply_to["from"]
+        target_id = target_user["id"]
+        target_name = target_user.get("first_name", "")
+      else:
+        target_id = user_id
+        target_name = full_name
+
+      mention = f"[{target_name}](tg://user?id={target_id})"
+      send_message(chat_id, f"သခင့်အလိုကျဖာသယ်မသားကိုဖင်စတင်လိုးပါတော့မယ်\n{mention}")
+
+      insults = INSULT_MESSAGES.copy()
+      random.shuffle(insults)
+      for insult in insults:
+        if chat_id in go_enabled and not go_enabled[chat_id]:
+          break
+        send_message(chat_id, f"{mention}\n{insult}")
+        time.sleep(1.5)
+
+    elif cmd == "/ungo":
       if not is_admin(chat_id, user_id):
         send_message(
             chat_id,
-            "❌ ဤ Command ကို Group ၏ Admin သို့မဟုတ် Owner များသာ"
-            " အသုံးပြုနိုင်ပါသည်။",
+            "မင်းမာခွင့်ပြုချက်မရှိဘူး ဖာသယ်မသား\nသုံးချင်ရင်ဖေဖေခေါ son",
         )
+        send_sticker(chat_id, MEMBER_STICKER_ID)
         return
       go_enabled[chat_id] = False
       send_message(chat_id, "ခွေးမသား အားလုံးငြိမ်းချမ်းစေ")
 
-    elif text.startswith("/rgo"):
+    elif cmd == "/rgo":
       if not is_admin(chat_id, user_id):
         send_message(
             chat_id,
-            "❌ ဤ Command ကို Group ၏ Admin သို့မဟုတ် Owner များသာ"
-            " အသုံးပြုနိုင်ပါသည်။",
+            "မင်းမာခွင့်ပြုချက်မရှိဘူး ဖာသယ်မသား\nသုံးချင်ရင်ဖေဖေခေါ son",
         )
+        send_sticker(chat_id, MEMBER_STICKER_ID)
         return
       go_enabled[chat_id] = True
       send_message(chat_id, "✅ `/go` ဖြင့် စာပို့ခြင်းကို ပြန်လည် ဖွင့်လိုက်ပါပြီ။")
 
-    elif text.startswith("/warn"):
+    elif cmd == "/warn":
       if not reply_to or "from" not in reply_to:
         send_message(
             chat_id, "ကျေးဇူးပြု၍ Warn ပေးလိုသူ၏ မက်ဆေ့ချ်ကို Reply ပြန်၍ ပို့ပါ။"
@@ -298,7 +412,7 @@ def handle_update(update):
             f"⚠️ {mention} ကို Admin မှ Warn ပေးလိုက်ပါပြီ။ ({current_warns}/3)",
         )
 
-    elif text.startswith("/warns"):
+    elif cmd == "/warns":
       target_user = (
           reply_to["from"] if (reply_to and "from" in reply_to) else user
       )
@@ -311,7 +425,7 @@ def handle_update(update):
           f"👤 {target_name} ရရှိထားသော Warn အရေအတွက်: ({count}/3)",
       )
 
-    elif text.startswith("/resetwarns"):
+    elif cmd == "/resetwarns":
       if not reply_to or "from" not in reply_to:
         send_message(
             chat_id, "ကျေးဇူးပြု၍ Warn ပြန်ဖျက်ပေးလိုသူ၏ မက်ဆေ့ချ်ကို Reply ပြန်ပါ။"
@@ -326,31 +440,93 @@ def handle_update(update):
           chat_id, f"✅ {target_name} ၏ Warn များကို ပြန်လည် ဖျက်ပေးလိုက်ပါပြီ။"
       )
 
-    elif text.startswith("/ban"):
+    # --- ROSE BOT MODERATION COMMANDS ---
+    elif cmd == "/ban":
       if reply_to and "from" in reply_to:
-        target_user = reply_to["from"]
-        ban_chat_member(chat_id, target_user["id"])
+        t_user = reply_to["from"]
+        ban_chat_member(chat_id, t_user["id"])
+        send_message(chat_id, f"❌ {t_user.get('first_name', '')} ကို Ban လိုက်ပါပြီ။")
+
+    elif cmd == "/dban":
+      if reply_to and "from" in reply_to:
+        t_user = reply_to["from"]
+        ban_chat_member(chat_id, t_user["id"])
+        delete_message(chat_id, reply_to["message_id"])
+        delete_message(chat_id, msg_id)
+
+    elif cmd == "/sban":
+      if reply_to and "from" in reply_to:
+        t_user = reply_to["from"]
+        ban_chat_member(chat_id, t_user["id"])
+        delete_message(chat_id, msg_id)
+
+    elif cmd == "/tban":
+      if reply_to and "from" in reply_to and len(parts) > 1:
+        t_user = reply_to["from"]
+        until = parse_time(parts[1])
+        if until:
+          ban_chat_member(chat_id, t_user["id"], until_date=until)
+          send_message(
+              chat_id,
+              f"⏳ {t_user.get('first_name', '')} ကို {parts[1]} ယာယီ Ban"
+              " လိုက်ပါပြီ။",
+          )
+
+    elif cmd == "/unban":
+      if reply_to and "from" in reply_to:
+        t_user = reply_to["from"]
+        unban_chat_member(chat_id, t_user["id"])
         send_message(
-            chat_id, f"❌ {target_user.get('first_name', '')} ကို Ban လိုက်ပါပြီ။"
+            chat_id, f"✅ {t_user.get('first_name', '')} ကို Unban လုပ်ပေးလိုက်ပါပြီ။"
         )
 
-    elif text.startswith("/mute"):
+    elif cmd == "/mute":
       if reply_to and "from" in reply_to:
-        target_user = reply_to["from"]
+        t_user = reply_to["from"]
         restrict_chat_member(
-            chat_id, target_user["id"], {"can_send_messages": False}
+            chat_id, t_user["id"], {"can_send_messages": False}
         )
         send_message(
-            chat_id,
-            f"🔇 {target_user.get('first_name', '')} ကို Mute လိုက်ပါပြီ။",
+            chat_id, f"🔇 {t_user.get('first_name', '')} ကို Mute လိုက်ပါပြီ။"
         )
 
-    elif text.startswith("/unmute"):
+    elif cmd == "/dmute":
       if reply_to and "from" in reply_to:
-        target_user = reply_to["from"]
+        t_user = reply_to["from"]
+        restrict_chat_member(
+            chat_id, t_user["id"], {"can_send_messages": False}
+        )
+        delete_message(chat_id, reply_to["message_id"])
+        delete_message(chat_id, msg_id)
+
+    elif cmd == "/smute":
+      if reply_to and "from" in reply_to:
+        t_user = reply_to["from"]
+        restrict_chat_member(
+            chat_id, t_user["id"], {"can_send_messages": False}
+        )
+        delete_message(chat_id, msg_id)
+
+    elif cmd == "/tmute":
+      if reply_to and "from" in reply_to and len(parts) > 1:
+        t_user = reply_to["from"]
+        until = parse_time(parts[1])
+        if until:
+          restrict_chat_member(
+              chat_id, t_user["id"], {"can_send_messages": False}, until_date=until
+          )
+          send_message(
+              chat_id,
+              f"⏳ {t_user.get('first_name', '')} ကို {parts[1]} ယာယီ Mute"
+              " လိုက်ပါပြီ။",
+          )
+
+    elif cmd == "/unmute":
+      if reply_to and "from" in reply_to:
+        t_user = reply_to["from"]
         restrict_chat_member(
             chat_id,
-            target_user["id"],
+            t_user["id"],
             {
                 "can_send_messages": True,
                 "can_send_media_messages": True,
@@ -360,8 +536,25 @@ def handle_update(update):
         )
         send_message(
             chat_id,
-            f"🔊 {target_user.get('first_name', '')} ကို Unmute လုပ်ပေးလိုက်ပါပြီ။",
+            f"🔊 {t_user.get('first_name', '')} ကို Unmute လုပ်ပေးလိုက်ပါပြီ။",
         )
+
+    elif cmd == "/kick":
+      if reply_to and "from" in reply_to:
+        t_user_obj = reply_to["from"]
+        ban_chat_member(chat_id, t_user_obj["id"])
+        unban_chat_member(chat_id, t_user_obj["id"])
+        send_message(
+            chat_id, f"👢 {t_user_obj.get('first_name', '')} ကို Kick လိုက်ပါပြီ။"
+        )
+
+    elif cmd == "/dkick":
+      if reply_to and "from" in reply_to:
+        t_user_obj = reply_to["from"]
+        ban_chat_member(chat_id, t_user_obj["id"])
+        unban_chat_member(chat_id, t_user_obj["id"])
+        delete_message(chat_id, reply_to["message_id"])
+        delete_message(chat_id, msg_id)
 
 
 def set_webhook():
