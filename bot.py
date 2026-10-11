@@ -16,7 +16,7 @@ BASE_URL = f"https://api.telegram.org/bot{TOKEN}"
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL")
 
 user_warns = {}
-go_enabled = {}
+go_running = {}  # /go အလုပ်လုပ်နေခြင်းကို ထိန်းချုပ်မည့် Dict
 
 MEMBER_STICKER_ID = (
     "CAACAgUAAxkBAAESBaZqyogu8kKadNqxN3T1Uv7dcxI2sgACgCEAAtp_KVde-glYrCtWNT0E"
@@ -242,7 +242,6 @@ class WebhookHandler(http.server.BaseHTTPRequestHandler):
 
 
 def handle_update(update):
-  # Check chat_member updates (when someone leaves/joins)
   if "chat_member" in update:
     cm = update["chat_member"]
     chat_id = cm["chat"]["id"]
@@ -277,7 +276,6 @@ def handle_update(update):
     text = msg.get("text", "")
     reply_to = msg.get("reply_to_message")
 
-    # Check left_chat_member in service messages as fallback
     if "left_chat_member" in msg:
       member = msg["left_chat_member"]
       m_id = member["id"]
@@ -292,7 +290,6 @@ def handle_update(update):
       send_sticker(chat_id, LEAVE_STICKER_ID)
       return
 
-    # New members welcome
     if "new_chat_members" in msg:
       for member in msg["new_chat_members"]:
         m_name = member.get("first_name", "")
@@ -302,7 +299,6 @@ def handle_update(update):
         )
       return
 
-    # Link filter
     link_regex = r"(https?://[^\s]+|t\.me/[^\s]+|telegram\.me/[^\s]+)"
     if text and re.search(link_regex, text, re.IGNORECASE):
       delete_message(chat_id, msg_id)
@@ -344,8 +340,10 @@ def handle_update(update):
         )
         send_sticker(chat_id, MEMBER_STICKER_ID)
         return
-      go_enabled[chat_id] = True  # Start running
 
+      go_running[chat_id] = True  # Start loop flag
+
+      # Admin က Member ရဲ့ Message ကို Reply လုပ်ထားရင် အဲ့ဒီ Member ကို Mention မည်
       if reply_to and "from" in reply_to:
         target_user = reply_to["from"]
         target_id = target_user["id"]
@@ -360,7 +358,7 @@ def handle_update(update):
       insults = INSULT_MESSAGES.copy()
       random.shuffle(insults)
       for insult in insults:
-        if chat_id in go_enabled and not go_enabled[chat_id]:
+        if not go_running.get(chat_id, False):
           break
         send_message(chat_id, f"{mention}\n{insult}")
         time.sleep(1.5)
@@ -373,7 +371,11 @@ def handle_update(update):
         )
         send_sticker(chat_id, MEMBER_STICKER_ID)
         return
-      go_enabled[chat_id] = False  # Stop ongoing insults
+
+      # /go ပို့နေတာကို ချက်ချင်းရပ်မည်
+      go_running[chat_id] = False
+
+      # ရပ်ပြီးမှ စာနဲ့ Sticker ပို့မည်
       send_message(chat_id, "ခွေးမသားအားလုံးငြိမ်းချမ်းစေ")
       send_sticker(chat_id, UNGO_STICKER_ID)
 
@@ -385,7 +387,7 @@ def handle_update(update):
         )
         send_sticker(chat_id, MEMBER_STICKER_ID)
         return
-      go_enabled[chat_id] = True
+      go_running[chat_id] = True
       send_message(chat_id, "✅ `/go` ဖြင့် စာပို့ခြင်းကို ပြန်လည် ဖွင့်လိုက်ပါပြီ။")
 
     elif cmd == "/warn":
@@ -575,5 +577,8 @@ def set_webhook():
 if __name__ == "__main__":
   set_webhook()
   server = http.server.ThreadingHTTPServer(("0.0.0.0", PORT), WebhookHandler)
-  logging.info(f"Starting Threading Web Service server on port {PORT}...")
+  logging.info(
+      f"Starting Threading Web Service server on port {PORT} with stop"
+      " support..."
+  )
   server.serve_forever()
