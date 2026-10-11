@@ -24,6 +24,9 @@ MEMBER_STICKER_ID = (
 LEAVE_STICKER_ID = (
     "CAACAgUAAxkBAAESBclqywzRE3mY_0B0mFsiDzdhVx32fgACYhAAAtltiVaBcjx4byu5lj0E"
 )
+UNGO_STICKER_ID = (
+    "CAACAgUAAxkBAAESBdtqyxNo3Iscak987Wcfy-fKke4O-gACJg4AAnL5iVaRP4VIj3qwNT0E"
+)
 
 INSULT_MESSAGES = [
     "အပေါစားဖာသည်မ နင့်လင်လီး ပြေးမစုပ်ရလို့ ဂါနေတာလား",
@@ -341,8 +344,7 @@ def handle_update(update):
         )
         send_sticker(chat_id, MEMBER_STICKER_ID)
         return
-      if chat_id in go_enabled and not go_enabled[chat_id]:
-        return
+      go_enabled[chat_id] = True  # Start running
 
       if reply_to and "from" in reply_to:
         target_user = reply_to["from"]
@@ -371,8 +373,9 @@ def handle_update(update):
         )
         send_sticker(chat_id, MEMBER_STICKER_ID)
         return
-      go_enabled[chat_id] = False
-      send_message(chat_id, "ခွေးမသား အားလုံးငြိမ်းချမ်းစေ")
+      go_enabled[chat_id] = False  # Stop ongoing insults
+      send_message(chat_id, "ခွေးမသားအားလုံးငြိမ်းချမ်းစေ")
+      send_sticker(chat_id, UNGO_STICKER_ID)
 
     elif cmd == "/rgo":
       if not is_admin(chat_id, user_id):
@@ -571,6 +574,6 @@ def set_webhook():
 
 if __name__ == "__main__":
   set_webhook()
-  server = http.server.HTTPServer(("0.0.0.0", PORT), WebhookHandler)
-  logging.info(f"Starting Web Service server on port {PORT}...")
+  server = http.server.ThreadingHTTPServer(("0.0.0.0", PORT), WebhookHandler)
+  logging.info(f"Starting Threading Web Service server on port {PORT}...")
   server.serve_forever()
