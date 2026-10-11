@@ -1,6 +1,7 @@
 import http.server
 import json
 import logging
+import mimetypes
 import os
 import random
 import re
@@ -8,6 +9,7 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+import yt_dlp
 
 logging.basicConfig(level=logging.INFO)
 
@@ -17,7 +19,7 @@ BASE_URL = f"https://api.telegram.org/bot{TOKEN}"
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL")
 
 user_warns = {}
-stop_events = {}  # Chat တစ်ခုချင်းစီအတွက် /go ကို ချက်ချင်းရပ်ရန် Event Dict
+stop_events = {}
 
 MEMBER_STICKER_ID = (
     "CAACAgUAAxkBAAESBaZqyogu8kKadNqxN3T1Uv7dcxI2sgACgCEAAtp_KVde-glYrCtWNT0E"
@@ -118,6 +120,13 @@ INSULT_MESSAGES = [
     "ရေငုပ်တာလား",
     "ဟာဘောမ မင်းအမေမချစ်လို့လား",
     "အရိုးကိုက်",
+    "မင်းအမေစဖုတ်ထဲ ကင်းဝင်လို့ဆို😂မင်းအမေကို မင်းချစ်လား မင်းမချစ်ပေမဲ့ ငါချစ်တယ် မင်းအမေကို",
+    "ဖာသည်မသားလေးလိုးခွဲပေးမယ်စာကိုလီးလောက်တတ်",
+    "မင်းဘာစောက်ဖြစ်ရှိဘူးလို့လဲဖာသည်မညဏ်က တထွာတ‌မိုက်နဲ့နိုင်ချင်တာလားကိုမေနှမလိုး တအားအသေဆဲခံချင်တာလား ကီရာ မင်းဟာမင်းစာသာကြည့်ထည့်တော့🤣",
+    "ဖီးတတ်ပြမနေတဲ့ခွေးမသား",
+    "ကိုအဆင့်အတန်းကိုမသိ မင်းကိုမင်းဟုတ်လှပြီမထင်ဟိတ်ခွေး",
+    "မင်းအမေ စောက်ဖုတ်ကို ပလေးစတိူး ထဲထည့်ပီးအပ်ပရိတ်တင်ပေးမယ်",
+    "မင်းအမစောက်ဖုတ်ကိုဘာဂျာထဲထည့် မှုတ်ပေး လိုက်လို့ ဒိုရေမီဖာဆိုဖစ်သွားမယ်ဖာပျက်မသား",
 ]
 
 
@@ -155,6 +164,49 @@ def delete_message(chat_id, message_id):
       "deleteMessage",
       {"chat_id": chat_id, "message_id": message_id},
   )
+
+
+def send_audio_file(chat_id, file_path, caption=""):
+  url = f"{BASE_URL}/sendAudio"
+  boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW"
+  body = bytearray()
+
+  body.extend(f"--{boundary}\r\n".encode())
+  body.extend(b'Content-Disposition: form-data; name="chat_id"\r\n\r\n')
+  body.extend(f"{chat_id}\r\n".encode())
+
+  if caption:
+    body.extend(f"--{boundary}\r\n".encode())
+    body.extend(b'Content-Disposition: form-data; name="caption"\r\n\r\n')
+    body.extend(f"{caption}\r\n".encode())
+
+  filename = os.path.basename(file_path)
+  mime_type = mimetypes.guess_type(file_path)[0] or "audio/mpeg"
+  with open(file_path, "rb") as f:
+    file_content = f.read()
+
+  body.extend(f"--{boundary}\r\n".encode())
+  body.extend(
+      f'Content-Disposition: form-data; name="audio"; filename="{filename}"\r\n'
+      .encode()
+  )
+  body.extend(f"Content-Type: {mime_type}\r\n\r\n".encode())
+  body.extend(file_content)
+  body.extend(b"\r\n")
+
+  body.extend(f"--{boundary}--\r\n".encode())
+
+  req = urllib.request.Request(
+      url,
+      data=bytes(body),
+      headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+  )
+  try:
+    with urllib.request.urlopen(req) as response:
+      return json.loads(response.read().decode("utf-8"))
+  except Exception as e:
+    logging.error(f"Failed to send audio: {e}")
+    return None
 
 
 def ban_chat_member(chat_id, user_id, until_date=None):
@@ -333,6 +385,60 @@ def handle_update(update):
           f"မင်္ဂလာပါ {full_name} ရေ 👋\nGroup မှ နွေးထွေးစွာ ကြိုဆိုပါတယ်။",
       )
 
+    elif cmd == "/play":
+      if len(parts) < 2:
+        send_message(
+            chat_id,
+            "🎶 ကျေးဇူးပြု၍ နားထောင်လိုသည့် သီချင်းနာမည် ထည့်ပါ (ဥပမာ -"
+            " `/play Shape of You`)",
+        )
+        return
+
+      query = " ".join(parts[1:])
+      send_message(chat_id, f"🔍 `{query}` ကို ရှာဖွေနေပါပြီ ခဏစောင့်ပါ...")
+
+      def download_and_send_music():
+        file_path = f"song_{chat_id}.mp3"
+        try:
+          ydl_opts_simple = {
+              "format": "bestaudio",
+              "outtmpl": file_path,
+              "quiet": True,
+              "noplaylist": True,
+          }
+
+          with yt_dlp.YoutubeDL(ydl_opts_simple) as ydl:
+            info = ydl.extract_info(f"ytsearch1:{query}", download=True)
+            if "entries" in info:
+              info = info["entries"][0]
+            title = info.get("title", query)
+
+          actual_file = None
+          for f in os.listdir("."):
+            if f.startswith(f"song_{chat_id}"):
+              actual_file = f
+              break
+
+          if actual_file and os.path.exists(actual_file):
+            send_audio_file(
+                chat_id, actual_file, caption=f"🎶 Now Playing: {title}"
+            )
+            os.remove(actual_file)
+          else:
+            send_message(
+                chat_id,
+                "❌ သီချင်းကို ဒေါင်းလုဒ်လုပ်၍ မရပါ။ ကျေးဇူးပြု၍ တခြားနာမည်"
+                " တစ်ခု ထပ်စမ်းပါ။",
+            )
+        except Exception as e:
+          logging.error(f"Music play error: {e}")
+          send_message(
+              chat_id,
+              "❌ သီချင်းရှာဖွေရာတွင် အမှားအယွင်း ဖြစ်သွားပါသည်။",
+          )
+
+      threading.Thread(target=download_and_send_music).start()
+
     elif cmd == "/go":
       if not is_admin(chat_id, user_id):
         send_message(
@@ -342,10 +448,6 @@ def handle_update(update):
         send_sticker(chat_id, MEMBER_STICKER_ID)
         return
 
-      # Stop event အသစ် ဖန်တီးမည်
-      stop_event = threading.Event()
-      stop_events[chat_id] = stop_event
-
       if reply_to and "from" in reply_to:
         target_user = reply_to["from"]
         target_id = target_user["id"]
@@ -354,19 +456,31 @@ def handle_update(update):
         target_id = user_id
         target_name = full_name
 
+      # Admin သို့မဟုတ် Owner အချင်းချင်းဖြစ်နေပါက /go သုံး၍မရအောင် တားမြစ်မည်
+      if is_admin(chat_id, target_id):
+        send_message(
+            chat_id,
+            "❌ Admin သို့မဟုတ် Owner အချင်းချင်း `/go` ဖြင့် ဆဲဆိုခွင့် မရှိပါ!",
+        )
+        send_sticker(chat_id, MEMBER_STICKER_ID)
+        return
+
+      stop_event = threading.Event()
+      stop_events[chat_id] = stop_event
+
       mention = f"[{target_name}](tg://user?id={target_id})"
       send_message(chat_id, f"သခင့်အလိုကျဖာသယ်မသားကိုဖင်စတင်လိုးပါတော့မယ်\n{mention}")
 
       def run_insults():
-        insults = INSULT_MESSAGES.copy()
-        random.shuffle(insults)
-        for insult in insults:
-          if stop_event.is_set():
-            break
-          send_message(chat_id, f"{mention}\n{insult}")
-          time.sleep(1.5)
+        while not stop_event.is_set():
+          insults = INSULT_MESSAGES.copy()
+          random.shuffle(insults)
+          for insult in insults:
+            if stop_event.is_set():
+              break
+            send_message(chat_id, f"{mention}\n{insult}")
+            time.sleep(1.5)
 
-      # Background Thread ဖြင့် လည်ပတ်စေမည် (Webhook ကို Block မဖြစ်စေရန်)
       threading.Thread(target=run_insults).start()
 
     elif cmd == "/ungo":
@@ -378,11 +492,9 @@ def handle_update(update):
         send_sticker(chat_id, MEMBER_STICKER_ID)
         return
 
-      # /go ကို ချက်ချင်း ရပ်တန့်မည်
       if chat_id in stop_events:
         stop_events[chat_id].set()
 
-      # ရပ်ပြီးမှ စာနဲ့ Sticker ပို့မည်
       send_message(chat_id, "ခွေးမသားအားလုံးငြိမ်းချမ်းစေ")
       send_sticker(chat_id, UNGO_STICKER_ID)
 
@@ -486,11 +598,28 @@ def handle_update(update):
           )
 
     elif cmd == "/unban":
-      if reply_to and "from" in reply_to:
+      target_id = None
+      target_name = "User"
+      if len(parts) > 1 and parts[1].isdigit():
+        target_id = int(parts[1])
+        target_name = f"ID: {target_id}"
+      elif reply_to and "from" in reply_to:
         t_user = reply_to["from"]
-        unban_chat_member(chat_id, t_user["id"])
+        target_id = t_user["id"]
+        target_name = t_user.get("first_name", "")
+
+      if target_id:
+        unban_chat_member(chat_id, target_id)
         send_message(
-            chat_id, f"✅ {t_user.get('first_name', '')} ကို Unban လုပ်ပေးလိုက်ပါပြီ။"
+            chat_id,
+            f"✅ {target_name} ကို Unban လုပ်ပေးလိုက်ပါပြီ။ ယခု Group"
+            " ထဲသို့ ပြန်ဝင်နိုင်ပါပြီ။",
+        )
+      else:
+        send_message(
+            chat_id,
+            "ℹ️ ကျေးဇူးပြု၍ Unban လုပ်လိုသူ၏ User ID ထည့်ပါ (ဥပမာ -"
+            " `/unban 123456789`) သို့မဟုတ် မက်ဆေ့ချ်ကို Reply ပြန်ပါ။",
         )
 
     elif cmd == "/mute":
@@ -530,7 +659,7 @@ def handle_update(update):
           )
           send_message(
               chat_id,
-              f"⏳ {t_user.get('first_name', '')} ကို {parts[1]} ယာယီ Mute"
+              f"⏳ {t_user.get('first_name', '')} ကို {parts[1]} ယာယီ မူးတေ"
               " လိုက်ပါပြီ။",
           )
 
@@ -586,7 +715,7 @@ if __name__ == "__main__":
   set_webhook()
   server = http.server.ThreadingHTTPServer(("0.0.0.0", PORT), WebhookHandler)
   logging.info(
-      f"Starting Threading Web Service server on port {PORT} with Threading"
-      " support..."
+      f"Starting Threading Web Service server on port {PORT} with admin"
+      " protection..."
   )
   server.serve_forever()
