@@ -401,21 +401,15 @@ def handle_update(update):
         file_path = f"song_{chat_id}"
         try:
           ydl_opts = {
-              "format": "bestaudio[ext=m4a]/bestaudio/best",
+              "format": "bestaudio/best",
               "outtmpl": file_path,
               "quiet": True,
               "noplaylist": True,
-              "user_agent": (
-                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                  " (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-              ),
-              "extractor_args": {
-                  "youtube": {"player_client": ["android", "web"]}
-              },
           }
 
           with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"ytsearch1:{query}", download=True)
+            # YouTube အစား SoundCloud မှ ရှာဖွေမည် (Cloud ဆာဗာများတွင် Block မခံရပါ)
+            info = ydl.extract_info(f"scsearch1:{query}", download=True)
             if "entries" in info:
               info = info["entries"][0]
             title = info.get("title", query)
@@ -735,6 +729,7 @@ if __name__ == "__main__":
   set_webhook()
   server = http.server.ThreadingHTTPServer(("0.0.0.0", PORT), WebhookHandler)
   logging.info(
-      f"Starting Threading Web Service server on port {PORT} with yt-dlp..."
+      f"Starting Threading Web Service server on port {PORT} with SoundCloud"
+      " search..."
   )
   server.serve_forever()
