@@ -407,15 +407,18 @@ def handle_update(update):
               "noplaylist": True,
               "user_agent": (
                   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                  " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                  " (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
               ),
-              "extractor_args": {
-                  "youtube": {"player_client": ["android", "web"]}
-              },
           }
 
           with yt_dlp.YoutubeDL(ydl_opts_simple) as ydl:
-            info = ydl.extract_info(f"ytsearch1:{query}", download=True)
+            try:
+              # SoundCloud ဖြင့် အရင်ရှာမည် (Cloud Server IP Block ကို ရှောင်ရှားရန်)
+              info = ydl.extract_info(f"scsearch1:{query}", download=True)
+            except Exception:
+              # မရပါက YouTube ဖြင့် ထပ်မံရှာမည်
+              info = ydl.extract_info(f"ytsearch1:{query}", download=True)
+
             if "entries" in info:
               info = info["entries"][0]
             title = info.get("title", query)
@@ -441,7 +444,9 @@ def handle_update(update):
           logging.error(f"Music play error: {e}")
           send_message(
               chat_id,
-              "❌ သီချင်းရှာဖွေရာတွင် အမှားအယွင်း ဖြစ်သွားပါသည်။",
+              "❌ သီချင်းရှာဖွေရာတွင် အမှားအယွင်း ဖြစ်သွားပါသည်။ (နာမည်ကို"
+              " အင်္ဂလိပ်လို သို့မဟုတ် အဆိုတော်နာမည်ဖြင့်"
+              " အသစ်ထပ်စမ်းကြည့်ပါ)",
           )
 
       threading.Thread(target=download_and_send_music).start()
