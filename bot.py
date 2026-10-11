@@ -4,6 +4,7 @@ import logging
 import os
 import random
 import re
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -16,7 +17,7 @@ BASE_URL = f"https://api.telegram.org/bot{TOKEN}"
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL")
 
 user_warns = {}
-go_running = {}  # /go အလုပ်လုပ်နေခြင်းကို ထိန်းချုပ်မည့် Dict
+stop_events = {}  # Chat တစ်ခုချင်းစီအတွက် /go ကို ချက်ချင်းရပ်ရန် Event Dict
 
 MEMBER_STICKER_ID = (
     "CAACAgUAAxkBAAESBaZqyogu8kKadNqxN3T1Uv7dcxI2sgACgCEAAtp_KVde-glYrCtWNT0E"
@@ -341,9 +342,10 @@ def handle_update(update):
         send_sticker(chat_id, MEMBER_STICKER_ID)
         return
 
-      go_running[chat_id] = True  # Start loop flag
+      # Stop event အသစ် ဖန်တီးမည်
+      stop_event = threading.Event()
+      stop_events[chat_id] = stop_event
 
-      # Admin က Member ရဲ့ Message ကို Reply လုပ်ထားရင် အဲ့ဒီ Member ကို Mention မည်
       if reply_to and "from" in reply_to:
         target_user = reply_to["from"]
         target_id = target_user["id"]
@@ -355,13 +357,17 @@ def handle_update(update):
       mention = f"[{target_name}](tg://user?id={target_id})"
       send_message(chat_id, f"သခင့်အလိုကျဖာသယ်မသားကိုဖင်စတင်လိုးပါတော့မယ်\n{mention}")
 
-      insults = INSULT_MESSAGES.copy()
-      random.shuffle(insults)
-      for insult in insults:
-        if not go_running.get(chat_id, False):
-          break
-        send_message(chat_id, f"{mention}\n{insult}")
-        time.sleep(1.5)
+      def run_insults():
+        insults = INSULT_MESSAGES.copy()
+        random.shuffle(insults)
+        for insult in insults:
+          if stop_event.is_set():
+            break
+          send_message(chat_id, f"{mention}\n{insult}")
+          time.sleep(1.5)
+
+      # Background Thread ဖြင့် လည်ပတ်စေမည် (Webhook ကို Block မဖြစ်စေရန်)
+      threading.Thread(target=run_insults).start()
 
     elif cmd == "/ungo":
       if not is_admin(chat_id, user_id):
@@ -372,8 +378,9 @@ def handle_update(update):
         send_sticker(chat_id, MEMBER_STICKER_ID)
         return
 
-      # /go ပို့နေတာကို ချက်ချင်းရပ်မည်
-      go_running[chat_id] = False
+      # /go ကို ချက်ချင်း ရပ်တန့်မည်
+      if chat_id in stop_events:
+        stop_events[chat_id].set()
 
       # ရပ်ပြီးမှ စာနဲ့ Sticker ပို့မည်
       send_message(chat_id, "ခွေးမသားအားလုံးငြိမ်းချမ်းစေ")
@@ -387,7 +394,8 @@ def handle_update(update):
         )
         send_sticker(chat_id, MEMBER_STICKER_ID)
         return
-      go_running[chat_id] = True
+      if chat_id in stop_events:
+        stop_events[chat_id].clear()
       send_message(chat_id, "✅ `/go` ဖြင့် စာပို့ခြင်းကို ပြန်လည် ဖွင့်လိုက်ပါပြီ။")
 
     elif cmd == "/warn":
@@ -578,7 +586,7 @@ if __name__ == "__main__":
   set_webhook()
   server = http.server.ThreadingHTTPServer(("0.0.0.0", PORT), WebhookHandler)
   logging.info(
-      f"Starting Threading Web Service server on port {PORT} with stop"
+      f"Starting Threading Web Service server on port {PORT} with Threading"
       " support..."
   )
   server.serve_forever()
