@@ -405,19 +405,12 @@ def handle_update(update):
               "outtmpl": file_path,
               "quiet": True,
               "noplaylist": True,
-              "user_agent": (
-                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                  " (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-              ),
           }
 
           with yt_dlp.YoutubeDL(ydl_opts_simple) as ydl:
-            try:
-              # SoundCloud ဖြင့် အရင်ရှာမည် (Cloud Server IP Block ကို ရှောင်ရှားရန်)
-              info = ydl.extract_info(f"scsearch1:{query}", download=True)
-            except Exception:
-              # မရပါက YouTube ဖြင့် ထပ်မံရှာမည်
-              info = ydl.extract_info(f"ytsearch1:{query}", download=True)
+            # တိကျစေရန် 'audio' စာသားကို တွဲ၍ ရှာဖွေမည်
+            search_query = f"ytsearch1:{query} audio"
+            info = ydl.extract_info(search_query, download=True)
 
             if "entries" in info:
               info = info["entries"][0]
@@ -444,9 +437,7 @@ def handle_update(update):
           logging.error(f"Music play error: {e}")
           send_message(
               chat_id,
-              "❌ သီချင်းရှာဖွေရာတွင် အမှားအယွင်း ဖြစ်သွားပါသည်။ (နာမည်ကို"
-              " အင်္ဂလိပ်လို သို့မဟုတ် အဆိုတော်နာမည်ဖြင့်"
-              " အသစ်ထပ်စမ်းကြည့်ပါ)",
+              "❌ သီချင်းရှာဖွေရာတွင် အမှားအယွင်း ဖြစ်သွားပါသည်။",
           )
 
       threading.Thread(target=download_and_send_music).start()
@@ -725,5 +716,8 @@ def set_webhook():
 if __name__ == "__main__":
   set_webhook()
   server = http.server.ThreadingHTTPServer(("0.0.0.0", PORT), WebhookHandler)
-  logging.info(f"Starting Threading Web Service server on port {PORT}...")
+  logging.info(
+      f"Starting Threading Web Service server on port {PORT} with accurate music"
+      " search..."
+  )
   server.serve_forever()
