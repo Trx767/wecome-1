@@ -405,6 +405,13 @@ def handle_update(update):
               "outtmpl": file_path,
               "quiet": True,
               "noplaylist": True,
+              "user_agent": (
+                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                  " (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+              ),
+              "extractor_args": {
+                  "youtube": {"player_client": ["android", "web"]}
+              },
           }
 
           with yt_dlp.YoutubeDL(ydl_opts_simple) as ydl:
@@ -456,7 +463,6 @@ def handle_update(update):
         target_id = user_id
         target_name = full_name
 
-      # Admin သို့မဟုတ် Owner အချင်းချင်းဖြစ်နေပါက /go သုံး၍မရအောင် တားမြစ်မည်
       if is_admin(chat_id, target_id):
         send_message(
             chat_id,
@@ -659,7 +665,7 @@ def handle_update(update):
           )
           send_message(
               chat_id,
-              f"⏳ {t_user.get('first_name', '')} ကို {parts[1]} ယာယီ မူးတေ"
+              f"⏳ {t_user.get('first_name', '')} ကို {parts[1]} ယာယီ Mute"
               " လိုက်ပါပြီ။",
           )
 
@@ -714,8 +720,5 @@ def set_webhook():
 if __name__ == "__main__":
   set_webhook()
   server = http.server.ThreadingHTTPServer(("0.0.0.0", PORT), WebhookHandler)
-  logging.info(
-      f"Starting Threading Web Service server on port {PORT} with admin"
-      " protection..."
-  )
+  logging.info(f"Starting Threading Web Service server on port {PORT}...")
   server.serve_forever()
