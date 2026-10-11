@@ -144,11 +144,12 @@ def send_request(method, data):
     return None
 
 
-def send_message(chat_id, text, parse_mode="Markdown"):
-  return send_request(
-      "sendMessage",
-      {"chat_id": chat_id, "text": text, "parse_mode": parse_mode},
-  )
+def send_message(chat_id, text, parse_mode=None):
+  # parse_mode ကို None သို့မဟုတ် markdown စာလုံးများ escape လုပ်ပြီးမှ သုံးရန်
+  payload = {"chat_id": chat_id, "text": text}
+  if parse_mode:
+    payload["parse_mode"] = parse_mode
+  return send_request("sendMessage", payload)
 
 
 def send_sticker(chat_id, sticker_id):
@@ -394,7 +395,7 @@ def handle_update(update):
         return
 
       query = " ".join(parts[1:])
-      send_message(chat_id, f"🔍 `{query}` ကို ရှာဖွေနေပါပြီ ခဏစောင့်ပါ...")
+      send_message(chat_id, f"🔍 {query} ကို ရှာဖွေနေပါပြီ ခဏစောင့်ပါ...")
 
       def download_and_send_music():
         file_path = f"song_{chat_id}.mp3"
@@ -403,32 +404,35 @@ def handle_update(update):
           encoded_query = urllib.parse.quote(query)
           api_url = f"https://pipedapi.kavin.rocks/search?q={encoded_query}"
           req = urllib.request.Request(
-              api_url,
-              headers={
-                  "User-Agent": (
-                      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                  )
-              },
+              api_url, headers={"User-Agent": "Mozilla/5.0"}
           )
 
           video_url = None
           title = query
-          with urllib.request.urlopen(req, timeout=10) as response:
-            data = json.loads(response.read().decode("utf-8"))
-            items = data.get("items", [])
-            for item in items:
-              if item.get("type") == "stream":
-                url_path = item.get("url")  # e.g. /watch?v=XXXXX
-                if url_path:
-                  video_url = f"https://www.youtube.com{url_path}"
-                  title = item.get("title", query)
-                  break
+          try:
+            with urllib.request.urlopen(req, timeout=10) as response:
+              data = json.loads(response.read().decode("utf-8"))
+              items = data.get("items", [])
+              for item in items:
+                if item.get("type") == "stream":
+                  url_path = item.get("url")
+                  if url_path:
+                    video_url = f"https://www.youtube.com{url_path}"
+                    title = item.get("title", query)
+                    break
+          except Exception as search_err:
+            logging.error(f"Search API Error: {search_err}")
+            send_message(
+                chat_id,
+                "❌ သီချင်းရှာဖွေရာတွင် API ချိတ်ဆက်မှု အမှားအယွင်းရှိပါသည်"
+                " (Search Error)",
+            )
+            return
 
           if not video_url:
             send_message(
                 chat_id,
-                "❌ သီချင်းကို ရှာမတွေ့ပါ။ ကျေးဇူးပြု၍ နာမည်အမှန်ဖြင့်"
-                " ထပ်စမ်းပါ။",
+                "❌ သီချင်းကို ရှာမတွေ့ပါ။ နာမည်အမှန်ဖြင့် ထပ်စမ်းပါ။",
             )
             return
 
@@ -441,43 +445,65 @@ def handle_update(update):
               headers={
                   "Accept": "application/json",
                   "Content-Type": "application/json",
-                  "User-Agent": (
-                      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                  ),
+                  "User-Agent": "Mozilla/5.0",
               },
           )
 
           download_link = None
-          with urllib.request.urlopen(cobalt_req, timeout=15) as cobalt_resp:
-            cobalt_data = json.loads(cobalt_resp.read().decode("utf-8"))
-            download_link = cobalt_data.get("url") or cobalt_data.get(
-                "picker", [{}]
-            )[0].get("url")
-
-          if not download_link:
+          try:
+            with urllib.request.urlopen(cobalt_req, timeout=15) as cobalt_resp:
+              cobalt_data = json.loads(cobalt_resp.read().decode("utf-8"))
+              download_link = cobalt_data.get("url") or cobalt_data.get(
+                  "picker", [{}]
+              )[0].get("url")
+          except Exception as cobalt_err:
+            logging.error(f"Cobalt API Error: {cobalt_err}")
             send_message(
-                chat_id, "❌ သီချင်းလင့်ခ် ရယူ၍မရပါ။ ကျေးဇူးပြု၍ ထပ်ကြိုးစားပါ။"
+                chat_id,
+                "❌ သီချင်း ဒေါင်းလုဒ်လင့်ခ် ထုတ်ယူရာတွင် အမှားအယွင်း"
+                " ဖြစ်သွားပါသည် (Cobalt Error)",
             )
             return
 
+          if not download_link:
+            send_message(chat_id, "❌ သီချင်းလင့်ခ် ရယူ၍မရပါ။")
+            return
+
           # 3. အသံဖိုင်ကို ဒေါင်းလုဒ်လုပ်မည်
-          urllib.request.urlretrieve(download_link, file_path)
+          try:
+            urllib.request.urlretrieve(download_link, file_path)
+          except Exception as dl_err:
+            logging.error(f"File Download Error: {dl_err}")
+            send_message(chat_id, "❌ ဖိုင် ဒေါင်းလုဒ်လုပ်၍ မရပါ။")
+            return
 
           if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
-            send_audio_file(
+            # Telegram သို့ အသံဖိုင် ပို့မည်
+            res = send_audio_file(
                 chat_id, file_path, caption=f"🎶 Now Playing: {title}"
             )
-            os.remove(file_path)
+            if os.path.exists(file_path):
+              os.remove(file_path)
+
+            if not res or not res.get("ok"):
+              err_desc = (
+                  res.get("description", "Unknown Telegram Error")
+                  if res
+                  else "No response"
+              )
+              logging.error(f"Telegram sendAudio error: {err_desc}")
+              send_message(
+                  chat_id,
+                  f"❌ အသံဖိုင် ပို့၍မရပါ။ (Telegram Error: {err_desc})",
+              )
           else:
-            send_message(
-                chat_id,
-                "❌ သီချင်းကို ဒေါင်းလုဒ်လုပ်၍ မရပါ။",
-            )
+            send_message(chat_id, "❌ ဒေါင်းလုပ်လုပ်ထားသော ဖိုင် ပျက်စီးနေပါသည်။")
+
         except Exception as e:
-          logging.error(f"Music play error: {e}")
+          logging.error(f"General Music play error: {e}")
           send_message(
               chat_id,
-              "❌ သီချင်းရှာဖွေရာတွင် အမှားအယွင်း ဖြစ်သွားပါသည်။",
+              f"❌ သီချင်းလုပ်ဆောင်ချက်တွင် အမှားအယွင်း ဖြစ်သွားပါသည်: {e}",
           )
 
       threading.Thread(target=download_and_send_music).start()
@@ -757,6 +783,7 @@ if __name__ == "__main__":
   set_webhook()
   server = http.server.ThreadingHTTPServer(("0.0.0.0", PORT), WebhookHandler)
   logging.info(
-      f"Starting Threading Web Service server on port {PORT} with Piped API..."
+      f"Starting Threading Web Service server on port {PORT} with detailed"
+      " debugging..."
   )
   server.serve_forever()
