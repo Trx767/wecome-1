@@ -399,23 +399,30 @@ def handle_update(update):
       def download_and_send_music():
         file_path = f"song_{chat_id}.mp3"
         try:
-          # 1. Invidious API ဖြင့် သီချင်းရှာဖွေမည်
+          # 1. Piped API ဖြင့် သီချင်းရှာဖွေမည်
           encoded_query = urllib.parse.quote(query)
-          api_url = f"https://vid.puffyan.us/api/v1/search?q={encoded_query}"
+          api_url = f"https://pipedapi.kavin.rocks/search?q={encoded_query}"
           req = urllib.request.Request(
-              api_url, headers={"User-Agent": "Mozilla/5.0"}
+              api_url,
+              headers={
+                  "User-Agent": (
+                      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                  )
+              },
           )
 
           video_url = None
           title = query
           with urllib.request.urlopen(req, timeout=10) as response:
-            results = json.loads(response.read().decode("utf-8"))
-            for item in results:
-              if item.get("type") == "video":
-                video_id = item.get("videoId")
-                video_url = f"https://www.youtube.com/watch?v={video_id}"
-                title = item.get("title", query)
-                break
+            data = json.loads(response.read().decode("utf-8"))
+            items = data.get("items", [])
+            for item in items:
+              if item.get("type") == "stream":
+                url_path = item.get("url")  # e.g. /watch?v=XXXXX
+                if url_path:
+                  video_url = f"https://www.youtube.com{url_path}"
+                  title = item.get("title", query)
+                  break
 
           if not video_url:
             send_message(
@@ -425,7 +432,7 @@ def handle_update(update):
             )
             return
 
-          # 2. Cobalt API ဖြင့် တိုက်ရိုက် အသံဖိုင်လင့်ခ် ရယူမည်
+          # 2. Cobalt API ဖြင့် အသံဖိုင်လင့်ခ် ရယူမည်
           cobalt_api = "https://api.cobalt.tools/api/json"
           payload = {"url": video_url, "isAudioOnly": True, "audioFormat": "mp3"}
           cobalt_req = urllib.request.Request(
@@ -434,7 +441,9 @@ def handle_update(update):
               headers={
                   "Accept": "application/json",
                   "Content-Type": "application/json",
-                  "User-Agent": "Mozilla/5.0",
+                  "User-Agent": (
+                      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                  ),
               },
           )
 
@@ -748,7 +757,6 @@ if __name__ == "__main__":
   set_webhook()
   server = http.server.ThreadingHTTPServer(("0.0.0.0", PORT), WebhookHandler)
   logging.info(
-      f"Starting Threading Web Service server on port {PORT} with API music"
-      " downloader..."
+      f"Starting Threading Web Service server on port {PORT} with Piped API..."
   )
   server.serve_forever()
