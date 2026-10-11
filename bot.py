@@ -14,7 +14,9 @@ import yt_dlp
 logging.basicConfig(level=logging.INFO)
 
 PORT = int(os.environ.get("PORT", 10000))
-TOKEN = os.getenv("TOKEN", "8668928237:AAEEdsgiEz8jNBwLlkTxbSXXro33568-OCg")
+TOKEN = os.getenv(
+    "TOKEN", "8668928237:AAE3UFubbCgFw-5-3-57MagpTfylsB1k1_E"
+)  # Bot Token အသစ်
 BASE_URL = f"https://api.telegram.org/bot{TOKEN}"
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL")
 
@@ -408,13 +410,11 @@ def handle_update(update):
           }
 
           with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # YouTube အစား SoundCloud မှ ရှာဖွေမည် (Cloud ဆာဗာများတွင် Block မခံရပါ)
             info = ydl.extract_info(f"scsearch1:{query}", download=True)
             if "entries" in info:
               info = info["entries"][0]
             title = info.get("title", query)
 
-          # Find the downloaded file
           actual_file = None
           for f in os.listdir("."):
             if f.startswith(f"song_{chat_id}"):
@@ -729,7 +729,6 @@ if __name__ == "__main__":
   set_webhook()
   server = http.server.ThreadingHTTPServer(("0.0.0.0", PORT), WebhookHandler)
   logging.info(
-      f"Starting Threading Web Service server on port {PORT} with SoundCloud"
-      " search..."
+      f"Starting Threading Web Service server on port {PORT} with new token..."
   )
   server.serve_forever()
