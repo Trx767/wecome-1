@@ -9,7 +9,6 @@ import threading
 import time
 import urllib.parse
 import urllib.request
-import yt_dlp
 
 logging.basicConfig(level=logging.INFO)
 
@@ -400,7 +399,7 @@ def handle_update(update):
       def download_and_send_music():
         file_path = f"song_{chat_id}.mp3"
         try:
-          # Invidious API ကိုသုံး၍ YouTube Video URL ကို ရှာဖွေမည်
+          # 1. Invidious API ဖြင့် သီချင်းရှာဖွေမည်
           encoded_query = urllib.parse.quote(query)
           api_url = f"https://vid.puffyan.us/api/v1/search?q={encoded_query}"
           req = urllib.request.Request(
@@ -426,28 +425,40 @@ def handle_update(update):
             )
             return
 
-          # yt-dlp ဖြင့် URL အတိုင်း သီချင်းဆွဲမည်
-          ydl_opts = {
-              "format": "bestaudio",
-              "outtmpl": file_path,
-              "quiet": True,
-              "noplaylist": True,
-          }
+          # 2. Cobalt API ဖြင့် တိုက်ရိုက် အသံဖိုင်လင့်ခ် ရယူမည်
+          cobalt_api = "https://api.cobalt.tools/api/json"
+          payload = {"url": video_url, "isAudioOnly": True, "audioFormat": "mp3"}
+          cobalt_req = urllib.request.Request(
+              cobalt_api,
+              data=json.dumps(payload).encode("utf-8"),
+              headers={
+                  "Accept": "application/json",
+                  "Content-Type": "application/json",
+                  "User-Agent": "Mozilla/5.0",
+              },
+          )
 
-          with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([video_url])
+          download_link = None
+          with urllib.request.urlopen(cobalt_req, timeout=15) as cobalt_resp:
+            cobalt_data = json.loads(cobalt_resp.read().decode("utf-8"))
+            download_link = cobalt_data.get("url") or cobalt_data.get(
+                "picker", [{}]
+            )[0].get("url")
 
-          actual_file = None
-          for f in os.listdir("."):
-            if f.startswith(f"song_{chat_id}"):
-              actual_file = f
-              break
-
-          if actual_file and os.path.exists(actual_file):
-            send_audio_file(
-                chat_id, actual_file, caption=f"🎶 Now Playing: {title}"
+          if not download_link:
+            send_message(
+                chat_id, "❌ သီချင်းလင့်ခ် ရယူ၍မရပါ။ ကျေးဇူးပြု၍ ထပ်ကြိုးစားပါ။"
             )
-            os.remove(actual_file)
+            return
+
+          # 3. အသံဖိုင်ကို ဒေါင်းလုဒ်လုပ်မည်
+          urllib.request.urlretrieve(download_link, file_path)
+
+          if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+            send_audio_file(
+                chat_id, file_path, caption=f"🎶 Now Playing: {title}"
+            )
+            os.remove(file_path)
           else:
             send_message(
                 chat_id,
@@ -738,6 +749,6 @@ if __name__ == "__main__":
   server = http.server.ThreadingHTTPServer(("0.0.0.0", PORT), WebhookHandler)
   logging.info(
       f"Starting Threading Web Service server on port {PORT} with API music"
-      " search..."
+      " downloader..."
   )
   server.serve_forever()
