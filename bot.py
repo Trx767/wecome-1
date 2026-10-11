@@ -14,11 +14,12 @@ import yt_dlp
 logging.basicConfig(level=logging.INFO)
 
 PORT = int(os.environ.get("PORT", 10000))
-TOKEN = os.getenv(
-    "TOKEN", "8668928237:AAE3UFubbCgFw-5-3-57MagpTfylsB1k1_E"
-)  # Bot Token အသစ်
+TOKEN = os.getenv("TOKEN", "8668928237:AAE3UFubbCgFw-5-3-57MagpTfylsB1k1_E")
 BASE_URL = f"https://api.telegram.org/bot{TOKEN}"
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL")
+
+OWNER_ID = 8338131451  # သတ်မှတ်ထားသော Admin ID
+CHATS_FILE = "chats.json"
 
 user_warns = {}
 stop_events = {}
@@ -117,7 +118,7 @@ INSULT_MESSAGES = [
     "မင်းနားမလည်နိုင်လောက်အောင် မင်းစောက်ဖြုတ်ဦးနှောက်နဲ့မတွေးနိုင်လောက်အောင် ငါ့အရေးအသားက စောက်ရမ်းအထာကျနေတာလား",
     "ငှက်လိုးမသား",
     "ငါလိုးမကုလားသေမယ်",
-    "ပြေးထားပန်းခြံမှာ ချုံတိုးပြီး ကပ်တိုးလေးအကွက်ရွေနေတာလားဒီနေ့တစ်မွန်ထူးချား ရူးနည်းတစ်မျိုးလားမင်းတို့တစ်မိသားစုလုံးဧရာဝတီမြစ်ထဲရေဆင်းကူးတဲ့ကိစ္စငါတို့မသိချင်ဘူး ရဖဖာသည်မသား မင်းဖေရှမ်းကြီးလား ငပိရောင်းတာ ကိုယ်မေကိုယ်လိုး အနားမကပ်နဲ့ အပုပ်နံ့ရတယ်ငါမြေလျှိုးမိုးပျံရင်မင်းဘဝစုတ်ပျက်သက်သွားမယ်",
+    "ပြေးထားပန်းခြံမှာ ချုံတိုးပြီး ကပ်တိုးလေးအકွက်ရွေနေတာလားဒီနေ့တစ်မွန်ထူးချား ရူးနည်းတစ်မျိုးလားမင်းတို့တစ်မိသားစုလုံးဧရာဝတီမြစ်ထဲရေဆင်းကူးတဲ့ကိစ္စငါတို့မသိချင်ဘူး ရဖဖာသည်မသား မင်းဖေရှမ်းကြီးလား ငပိရောင်းတာ ကိုယ်မေကိုယ်လိုး အနားမကပ်နဲ့ အပုပ်နံ့ရတယ်ငါမြေလျှိုးမိုးပျံရင်မင်းဘဝစုတ်ပျက်သက်သွားမယ်",
     "နှေးကွေးနေတာပဲစာတစ်လုံးနဲ့တစ်လုံးက",
     "ရေငုပ်တာလား",
     "ဟာဘောမ မင်းအမေမချစ်လို့လား",
@@ -130,6 +131,27 @@ INSULT_MESSAGES = [
     "မင်းအမေ စောက်ဖုတ်ကို ပလေးစတိူး ထဲထည့်ပီးအပ်ပရိတ်တင်ပေးမယ်",
     "မင်းအမစောက်ဖုတ်ကိုဘာဂျာထဲထည့် မှုတ်ပေး လိုက်လို့ ဒိုရေမီဖာဆိုဖစ်သွားမယ်ဖာပျက်မသား",
 ]
+
+
+def load_chats():
+  if os.path.exists(CHATS_FILE):
+    try:
+      with open(CHATS_FILE, "r") as f:
+        return json.load(f)
+    except:
+      return []
+  return []
+
+
+def save_chat_id(chat_id):
+  chats = load_chats()
+  if chat_id not in chats:
+    chats.append(chat_id)
+    try:
+      with open(CHATS_FILE, "w") as f:
+        json.dump(chats, f)
+    except Exception as e:
+      logging.error(f"Failed to save chat ID: {e}")
 
 
 def send_request(method, data):
@@ -147,18 +169,20 @@ def send_request(method, data):
     return None
 
 
-def send_message(chat_id, text, parse_mode=None):
+def send_message(chat_id, text, parse_mode=None, reply_to_message_id=None):
   payload = {"chat_id": chat_id, "text": text}
   if parse_mode:
     payload["parse_mode"] = parse_mode
+  if reply_to_message_id:
+    payload["reply_to_message_id"] = reply_to_message_id
   return send_request("sendMessage", payload)
 
 
-def send_sticker(chat_id, sticker_id):
-  return send_request(
-      "sendSticker",
-      {"chat_id": chat_id, "sticker": sticker_id},
-  )
+def send_sticker(chat_id, sticker_id, reply_to_message_id=None):
+  payload = {"chat_id": chat_id, "sticker": sticker_id}
+  if reply_to_message_id:
+    payload["reply_to_message_id"] = reply_to_message_id
+  return send_request("sendSticker", payload)
 
 
 def delete_message(chat_id, message_id):
@@ -168,7 +192,7 @@ def delete_message(chat_id, message_id):
   )
 
 
-def send_audio_file(chat_id, file_path, caption=""):
+def send_audio_file(chat_id, file_path, caption="", reply_to_message_id=None):
   url = f"{BASE_URL}/sendAudio"
   boundary = "----WebKitFormBoundary7MA4YWxkTrZu0gW"
   body = bytearray()
@@ -176,6 +200,13 @@ def send_audio_file(chat_id, file_path, caption=""):
   body.extend(f"--{boundary}\r\n".encode())
   body.extend(b'Content-Disposition: form-data; name="chat_id"\r\n\r\n')
   body.extend(f"{chat_id}\r\n".encode())
+
+  if reply_to_message_id:
+    body.extend(f"--{boundary}\r\n".encode())
+    body.extend(
+        b'Content-Disposition: form-data; name="reply_to_message_id"\r\n\r\n'
+    )
+    body.extend(f"{reply_to_message_id}\r\n".encode())
 
   if caption:
     body.extend(f"--{boundary}\r\n".encode())
@@ -243,6 +274,8 @@ def get_chat_member(chat_id, user_id):
 
 
 def is_admin(chat_id, user_id):
+  if user_id == OWNER_ID:
+    return True
   member = get_chat_member(chat_id, user_id)
   if member:
     return member.get("status") in ["administrator", "creator"]
@@ -300,6 +333,7 @@ def handle_update(update):
   if "chat_member" in update:
     cm = update["chat_member"]
     chat_id = cm["chat"]["id"]
+    save_chat_id(chat_id)
     old_status = cm["old_chat_member"].get("status")
     new_status = cm["new_chat_member"].get("status")
 
@@ -315,6 +349,7 @@ def handle_update(update):
       send_message(
           chat_id,
           f"{mention}\nထွက်ရင် ban တယ် မအေလိုး ပြန်မလာနဲ့",
+          parse_mode="Markdown",
       )
       send_sticker(chat_id, LEAVE_STICKER_ID)
     return
@@ -322,6 +357,8 @@ def handle_update(update):
   if "message" in update:
     msg = update["message"]
     chat_id = msg["chat"]["id"]
+    save_chat_id(chat_id)  # အသုံးပြုသူတိုင်း၏ Chat ID ကို မှတ်သားမည်
+
     msg_id = msg["message_id"]
     user = msg.get("from", {})
     user_id = user.get("id")
@@ -329,7 +366,42 @@ def handle_update(update):
         " " + user.get("last_name", "") if user.get("last_name") else ""
     )
     text = msg.get("text", "")
+    chat_type = msg.get("chat", {}).get("type", "")
     reply_to = msg.get("reply_to_message")
+
+    # --- OWNER BROADCAST SYSTEM (DM ထဲမှနေ၍ တစ်ကမ္ဘာလုံးသို့ စာပို့ရန်) ---
+    if user_id == OWNER_ID and chat_type == "private":
+      if text.startswith("/broadcast") or text.startswith("/bc"):
+        parts = text.split(maxsplit=1)
+        if len(parts) < 2:
+          send_message(
+              chat_id,
+              "ℹ️ ကျေးဇူးပြု၍ ပို့လိုသော ကြေညာချက် စာသားကို ထည့်ပါ (ဥပမာ -"
+              " `/broadcast မင်္ဂလာပါ`)",
+              reply_to_message_id=msg_id,
+          )
+          return
+
+        bc_text = parts[1]
+        chats = load_chats()
+        success = 0
+        failed = 0
+
+        for target_id in chats:
+          # Owner ကိုယ်တိုင်ရဲ့ DM ကို ထပ်မပို့မိစေရန် (သို့မဟုတ် လိုအပ်လျှင် ပို့ရန်)
+          res = send_message(target_id, bc_text)
+          if res and res.get("ok"):
+            success += 1
+          else:
+            failed += 1
+
+        send_message(
+            chat_id,
+            f"✅ Broadcast ပို့ပြီးပါပြီ။\n- အောင်မြင်သည့် chats: {success}\n-"
+            f" မအောင်မြင်ပါ: {failed}",
+            reply_to_message_id=msg_id,
+        )
+        return
 
     if "left_chat_member" in msg:
       member = msg["left_chat_member"]
@@ -341,6 +413,7 @@ def handle_update(update):
       send_message(
           chat_id,
           f"{mention}\nထွက်ရင် ban တယ် မအေလိုး ပြန်မလာနဲ့",
+          parse_mode="Markdown",
       )
       send_sticker(chat_id, LEAVE_STICKER_ID)
       return
@@ -350,33 +423,40 @@ def handle_update(update):
         m_name = member.get("first_name", "")
         mention = f"[{m_name}](tg://user?id={member['id']})"
         send_message(
-            chat_id, f"မင်္ဂလာပါ {mention} ရေ 👋\nGroup မှ နွေးထွေးစွာ ကြိုဆိုပါတယ်။"
+            chat_id,
+            f"မင်္ဂလာပါ {mention} ရေ 👋\nGroup မှ နွေးထွေးစွာ ကြိုဆိုပါတယ်။",
+            parse_mode="Markdown",
         )
       return
 
     link_regex = r"(https?://[^\s]+|t\.me/[^\s]+|telegram\.me/[^\s]+)"
     if text and re.search(link_regex, text, re.IGNORECASE):
-      delete_message(chat_id, msg_id)
-      key = (chat_id, user_id)
-      current_warns = user_warns.get(key, 0) + 1
-      user_warns[key] = current_warns
-      mention = f"[{full_name}](tg://user?id={user_id})"
+      if user_id != OWNER_ID and not is_admin(chat_id, user_id):
+        delete_message(chat_id, msg_id)
+        key = (chat_id, user_id)
+        current_warns = user_warns.get(key, 0) + 1
+        user_warns[key] = current_warns
+        mention = f"[{full_name}](tg://user?id={user_id})"
 
-      if current_warns >= 3:
-        ban_chat_member(chat_id, user_id)
-        send_message(
-            chat_id,
-            f"⚠️ {mention} သည် Link (၃) ကြိမ် ပို့သောကြောင့် Group မှ"
-            " Ban လိုက်ပါပြီ။",
-        )
-        user_warns.pop(key, None)
-      else:
-        send_message(
-            chat_id,
-            f"⚠️ {mention} Link ပို့ခွင့်မရှိပါ။\nသတိပေးချက်: ({current_warns}/3)"
-            " ကြိမ် ရရှိထားပါသည်။ (၃) ကြိမ်ပြည့်ပါက Ban ခံရပါမည်။",
-        )
-      return
+        if current_warns >= 3:
+          ban_chat_member(chat_id, user_id)
+          send_message(
+              chat_id,
+              f"⚠️ {mention} သည် Link (၃) ကြိမ် ပို့သောကြောင့် Group မှ"
+              " Ban လိုက်ပါပြီ။",
+              parse_mode="Markdown",
+              reply_to_message_id=msg_id,
+          )
+          user_warns.pop(key, None)
+        else:
+          send_message(
+              chat_id,
+              f"⚠️ {mention} Link ပို့ခွင့်မရှိပါ။\nသတိပေးချက်: ({current_warns}/3)"
+              " ကြိမ် ရရှိထားပါသည်။ (၃) ကြိမ်ပြည့်ပါက Ban ခံရပါမည်။",
+              parse_mode="Markdown",
+              reply_to_message_id=msg_id,
+          )
+        return
 
     parts = text.split()
     cmd = parts[0].split("@")[0] if parts else ""
@@ -385,7 +465,36 @@ def handle_update(update):
       send_message(
           chat_id,
           f"မင်္ဂလာပါ {full_name} ရေ 👋\nGroup မှ နွေးထွေးစွာ ကြိုဆိုပါတယ်။",
+          reply_to_message_id=msg_id,
       )
+
+    elif cmd == "/say" or cmd == "/write":
+      if user_id != OWNER_ID and not is_admin(chat_id, user_id):
+        send_message(
+            chat_id,
+            "မင်းမာခွင့်ပြုချက်မရှိဘူး ဖာသယ်မသား",
+            reply_to_message_id=msg_id,
+        )
+        send_sticker(chat_id, MEMBER_STICKER_ID, reply_to_message_id=msg_id)
+        return
+
+      text_to_send = " ".join(parts[1:])
+      if not text_to_send:
+        send_message(
+            chat_id,
+            "ℹ️ ကျေးဇူးပြု၍ Bot ဖြင့် ရေးလိုသော စာသားကို ထည့်ပါ (ဥပမာ -"
+            " `/say မင်္ဂလာပါ`)",
+            reply_to_message_id=msg_id,
+        )
+        return
+
+      delete_message(chat_id, msg_id)
+      reply_target = (
+          reply_to["message_id"]
+          if (reply_to and "from" in reply_to and reply_to["from"]["id"] != user_id)
+          else None
+      )
+      send_message(chat_id, text_to_send, reply_to_message_id=reply_target)
 
     elif cmd == "/play":
       if len(parts) < 2:
@@ -393,11 +502,16 @@ def handle_update(update):
             chat_id,
             "🎶 ကျေးဇူးပြု၍ နားထောင်လိုသည့် သီချင်းနာမည် ထည့်ပါ (ဥပမာ -"
             " `/play Shape of You`)",
+            reply_to_message_id=msg_id,
         )
         return
 
       query = " ".join(parts[1:])
-      send_message(chat_id, f"🔍 `{query}` ကို ရှာဖွေနေပါပြီ ခဏစောင့်ပါ...")
+      send_message(
+          chat_id,
+          f"🔍 `{query}` ကို ရှာဖွေနေပါပြီ ခဏစောင့်ပါ...",
+          reply_to_message_id=msg_id,
+      )
 
       def download_and_send_music():
         file_path = f"song_{chat_id}"
@@ -423,7 +537,10 @@ def handle_update(update):
 
           if actual_file and os.path.exists(actual_file):
             res = send_audio_file(
-                chat_id, actual_file, caption=f"🎶 Now Playing: {title}"
+                chat_id,
+                actual_file,
+                caption=f"🎶 Now Playing: {title}",
+                reply_to_message_id=msg_id,
             )
             if os.path.exists(actual_file):
               os.remove(actual_file)
@@ -438,18 +555,21 @@ def handle_update(update):
               send_message(
                   chat_id,
                   f"❌ အသံဖိုင် ပို့၍မရပါ။ (Telegram Error: {err_desc})",
+                  reply_to_message_id=msg_id,
               )
           else:
             send_message(
                 chat_id,
                 "❌ သီချင်းကို ဒေါင်းလုဒ်လုပ်၍ မရပါ။ ကျေးဇူးပြု၍ တခြားနာမည်"
                 " တစ်ခု ထပ်စမ်းပါ။",
+                reply_to_message_id=msg_id,
             )
         except Exception as e:
           logging.error(f"Music play error: {e}")
           send_message(
               chat_id,
               f"❌ သီချင်းရှာဖွေရာတွင် အမှားအယွင်း ဖြစ်သွားပါသည်: {e}",
+              reply_to_message_id=msg_id,
           )
 
       threading.Thread(target=download_and_send_music).start()
@@ -459,8 +579,9 @@ def handle_update(update):
         send_message(
             chat_id,
             "မင်းမာခွင့်ပြုချက်မရှိဘူး ဖာသယ်မသား\nသုံးချင်ရင်ဖေဖေခေါ son",
+            reply_to_message_id=msg_id,
         )
-        send_sticker(chat_id, MEMBER_STICKER_ID)
+        send_sticker(chat_id, MEMBER_STICKER_ID, reply_to_message_id=msg_id)
         return
 
       if reply_to and "from" in reply_to:
@@ -471,19 +592,24 @@ def handle_update(update):
         target_id = user_id
         target_name = full_name
 
-      if is_admin(chat_id, target_id):
+      if is_admin(chat_id, target_id) and target_id != OWNER_ID:
         send_message(
             chat_id,
             "❌ Admin သို့မဟုတ် Owner အချင်းချင်း `/go` ဖြင့် ဆဲဆိုခွင့် မရှိပါ!",
+            reply_to_message_id=msg_id,
         )
-        send_sticker(chat_id, MEMBER_STICKER_ID)
+        send_sticker(chat_id, MEMBER_STICKER_ID, reply_to_message_id=msg_id)
         return
 
       stop_event = threading.Event()
       stop_events[chat_id] = stop_event
 
       mention = f"[{target_name}](tg://user?id={target_id})"
-      send_message(chat_id, f"သခင့်အလိုကျဖာသယ်မသားကိုဖင်စတင်လိုးပါတော့မယ်\n{mention}")
+      send_message(
+          chat_id,
+          f"သခင့်အလိုကျဖာသယ်မသားကိုဖင်စတင်လိုးပါတော့မယ်\n{mention}",
+          parse_mode="Markdown",
+      )
 
       def run_insults():
         while not stop_event.is_set():
@@ -492,7 +618,11 @@ def handle_update(update):
           for insult in insults:
             if stop_event.is_set():
               break
-            send_message(chat_id, f"{mention}\n{insult}")
+            send_message(
+                chat_id,
+                f"{mention}\n{insult}",
+                parse_mode="Markdown",
+            )
             time.sleep(1.5)
 
       threading.Thread(target=run_insults).start()
@@ -502,8 +632,9 @@ def handle_update(update):
         send_message(
             chat_id,
             "မင်းမာခွင့်ပြုချက်မရှိဘူး ဖာသယ်မသား\nသုံးချင်ရင်ဖေဖေခေါ son",
+            reply_to_message_id=msg_id,
         )
-        send_sticker(chat_id, MEMBER_STICKER_ID)
+        send_sticker(chat_id, MEMBER_STICKER_ID, reply_to_message_id=msg_id)
         return
 
       if chat_id in stop_events:
@@ -517,17 +648,27 @@ def handle_update(update):
         send_message(
             chat_id,
             "မင်းမာခွင့်ပြုချက်မရှိဘူး ဖာသယ်မသား\nသုံးချင်ရင်ဖေဖေခေါ son",
+            reply_to_message_id=msg_id,
         )
-        send_sticker(chat_id, MEMBER_STICKER_ID)
+        send_sticker(chat_id, MEMBER_STICKER_ID, reply_to_message_id=msg_id)
         return
       if chat_id in stop_events:
         stop_events[chat_id].clear()
       send_message(chat_id, "✅ `/go` ဖြင့် စာပို့ခြင်းကို ပြန်လည် ဖွင့်လိုက်ပါပြီ။")
 
     elif cmd == "/warn":
+      if not is_admin(chat_id, user_id):
+        send_message(
+            chat_id,
+            "မင်းမာခွင့်ပြုချက်မရှိဘူး ဖာသယ်မသား",
+            reply_to_message_id=msg_id,
+        )
+        return
       if not reply_to or "from" not in reply_to:
         send_message(
-            chat_id, "ကျေးဇူးပြု၍ Warn ပေးလိုသူ၏ မက်ဆေ့ချ်ကို Reply ပြန်၍ ပို့ပါ။"
+            chat_id,
+            "ကျေးဇူးပြု၍ Warn ပေးလိုသူ၏ မက်ဆေ့ချ်ကို Reply ပြန်၍ ပို့ပါ။",
+            reply_to_message_id=msg_id,
         )
         return
       target_user = reply_to["from"]
@@ -543,12 +684,16 @@ def handle_update(update):
         send_message(
             chat_id,
             f"⚠️ {mention} သည် Warn (၃) ကြိမ်ပြည့်သွားသောကြောင့် Ban လိုက်ပါပြီ။",
+            parse_mode="Markdown",
+            reply_to_message_id=msg_id,
         )
         user_warns.pop(key, None)
       else:
         send_message(
             chat_id,
             f"⚠️ {mention} ကို Admin မှ Warn ပေးလိုက်ပါပြီ။ ({current_warns}/3)",
+            parse_mode="Markdown",
+            reply_to_message_id=msg_id,
         )
 
     elif cmd == "/warns":
@@ -562,12 +707,22 @@ def handle_update(update):
       send_message(
           chat_id,
           f"👤 {target_name} ရရှိထားသော Warn အရေအတွက်: ({count}/3)",
+          reply_to_message_id=msg_id,
       )
 
     elif cmd == "/resetwarns":
+      if not is_admin(chat_id, user_id):
+        send_message(
+            chat_id,
+            "မင်းမာခွင့်ပြုချက်မရှိဘူး ဖာသယ်မသား",
+            reply_to_message_id=msg_id,
+        )
+        return
       if not reply_to or "from" not in reply_to:
         send_message(
-            chat_id, "ကျေးဇူးပြု၍ Warn ပြန်ဖျက်ပေးလိုသူ၏ မက်ဆေ့ချ်ကို Reply ပြန်ပါ။"
+            chat_id,
+            "ကျေးဇူးပြု၍ Warn ပြန်ဖျက်ပေးလိုသူ၏ မက်ဆေ့ချ်ကို Reply ပြန်ပါ။",
+            reply_to_message_id=msg_id,
         )
         return
       target_user = reply_to["from"]
@@ -576,17 +731,27 @@ def handle_update(update):
       key = (chat_id, target_id)
       user_warns.pop(key, None)
       send_message(
-          chat_id, f"✅ {target_name} ၏ Warn များကို ပြန်လည် ဖျက်ပေးလိုက်ပါပြီ။"
+          chat_id,
+          f"✅ {target_name} ၏ Warn များကို ပြန်လည် ဖျက်ပေးလိုက်ပါပြီ။",
+          reply_to_message_id=msg_id,
       )
 
     # --- ROSE BOT MODERATION COMMANDS ---
     elif cmd == "/ban":
+      if not is_admin(chat_id, user_id):
+        return
       if reply_to and "from" in reply_to:
         t_user = reply_to["from"]
         ban_chat_member(chat_id, t_user["id"])
-        send_message(chat_id, f"❌ {t_user.get('first_name', '')} ကို Ban လိုက်ပါပြီ။")
+        send_message(
+            chat_id,
+            f"❌ {t_user.get('first_name', '')} ကို Ban လိုက်ပါပြီ။",
+            reply_to_message_id=msg_id,
+        )
 
     elif cmd == "/dban":
+      if not is_admin(chat_id, user_id):
+        return
       if reply_to and "from" in reply_to:
         t_user = reply_to["from"]
         ban_chat_member(chat_id, t_user["id"])
@@ -594,12 +759,16 @@ def handle_update(update):
         delete_message(chat_id, msg_id)
 
     elif cmd == "/sban":
+      if not is_admin(chat_id, user_id):
+        return
       if reply_to and "from" in reply_to:
         t_user = reply_to["from"]
         ban_chat_member(chat_id, t_user["id"])
         delete_message(chat_id, msg_id)
 
     elif cmd == "/tban":
+      if not is_admin(chat_id, user_id):
+        return
       if reply_to and "from" in reply_to and len(parts) > 1:
         t_user = reply_to["from"]
         until = parse_time(parts[1])
@@ -609,9 +778,12 @@ def handle_update(update):
               chat_id,
               f"⏳ {t_user.get('first_name', '')} ကို {parts[1]} ယာယီ Ban"
               " လိုက်ပါပြီ။",
+              reply_to_message_id=msg_id,
           )
 
     elif cmd == "/unban":
+      if not is_admin(chat_id, user_id):
+        return
       target_id = None
       target_name = "User"
       if len(parts) > 1 and parts[1].isdigit():
@@ -628,25 +800,33 @@ def handle_update(update):
             chat_id,
             f"✅ {target_name} ကို Unban လုပ်ပေးလိုက်ပါပြီ။ ယခု Group"
             " ထဲသို့ ပြန်ဝင်နိုင်ပါပြီ။",
+            reply_to_message_id=msg_id,
         )
       else:
         send_message(
             chat_id,
             "ℹ️ ကျေးဇူးပြု၍ Unban လုပ်လိုသူ၏ User ID ထည့်ပါ (ဥပမာ -"
             " `/unban 123456789`) သို့မဟုတ် မက်ဆေ့ချ်ကို Reply ပြန်ပါ။",
+            reply_to_message_id=msg_id,
         )
 
     elif cmd == "/mute":
+      if not is_admin(chat_id, user_id):
+        return
       if reply_to and "from" in reply_to:
         t_user = reply_to["from"]
         restrict_chat_member(
             chat_id, t_user["id"], {"can_send_messages": False}
         )
         send_message(
-            chat_id, f"🔇 {t_user.get('first_name', '')} ကို Mute လိုက်ပါပြီ။"
+            chat_id,
+            f"🔇 {t_user.get('first_name', '')} ကို Mute လိုက်ပါပြီ။",
+            reply_to_message_id=msg_id,
         )
 
     elif cmd == "/dmute":
+      if not is_admin(chat_id, user_id):
+        return
       if reply_to and "from" in reply_to:
         t_user = reply_to["from"]
         restrict_chat_member(
@@ -656,6 +836,8 @@ def handle_update(update):
         delete_message(chat_id, msg_id)
 
     elif cmd == "/smute":
+      if not is_admin(chat_id, user_id):
+        return
       if reply_to and "from" in reply_to:
         t_user = reply_to["from"]
         restrict_chat_member(
@@ -664,20 +846,28 @@ def handle_update(update):
         delete_message(chat_id, msg_id)
 
     elif cmd == "/tmute":
+      if not is_admin(chat_id, user_id):
+        return
       if reply_to and "from" in reply_to and len(parts) > 1:
         t_user = reply_to["from"]
         until = parse_time(parts[1])
         if until:
           restrict_chat_member(
-              chat_id, t_user["id"], {"can_send_messages": False}, until_date=until
+              chat_id,
+              t_user["id"],
+              {"can_send_messages": False},
+              until_date=until,
           )
           send_message(
               chat_id,
               f"⏳ {t_user.get('first_name', '')} ကို {parts[1]} ယာယီ Mute"
               " လိုက်ပါပြီ။",
+              reply_to_message_id=msg_id,
           )
 
     elif cmd == "/unmute":
+      if not is_admin(chat_id, user_id):
+        return
       if reply_to and "from" in reply_to:
         t_user = reply_to["from"]
         restrict_chat_member(
@@ -693,18 +883,25 @@ def handle_update(update):
         send_message(
             chat_id,
             f"🔊 {t_user.get('first_name', '')} ကို Unmute လုပ်ပေးလိုက်ပါပြီ။",
+            reply_to_message_id=msg_id,
         )
 
     elif cmd == "/kick":
+      if not is_admin(chat_id, user_id):
+        return
       if reply_to and "from" in reply_to:
         t_user_obj = reply_to["from"]
         ban_chat_member(chat_id, t_user_obj["id"])
         unban_chat_member(chat_id, t_user_obj["id"])
         send_message(
-            chat_id, f"👢 {t_user_obj.get('first_name', '')} ကို Kick လိုက်ပါပြီ။"
+            chat_id,
+            f"👢 {t_user_obj.get('first_name', '')} ကို Kick လိုက်ပါပြီ။",
+            reply_to_message_id=msg_id,
         )
 
     elif cmd == "/dkick":
+      if not is_admin(chat_id, user_id):
+        return
       if reply_to and "from" in reply_to:
         t_user_obj = reply_to["from"]
         ban_chat_member(chat_id, t_user_obj["id"])
@@ -729,6 +926,7 @@ if __name__ == "__main__":
   set_webhook()
   server = http.server.ThreadingHTTPServer(("0.0.0.0", PORT), WebhookHandler)
   logging.info(
-      f"Starting Threading Web Service server on port {PORT} with new token..."
+      f"Starting Threading Web Service server on port {PORT} with Broadcast"
+      " support..."
   )
   server.serve_forever()
